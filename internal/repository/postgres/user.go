@@ -23,30 +23,18 @@ func NewUserRepository(q *db.Queries) *UserRepository {
 	return &UserRepository{q: q}
 }
 
+// ============================================================================
+// Standard Methods (use internal queries)
+// ============================================================================
+
 // Create creates a new user in the database.
 func (r *UserRepository) Create(ctx context.Context, input domain.CreateUserInput, passwordHash string) (*domain.User, error) {
-	row, err := r.q.CreateUser(ctx, db.CreateUserParams{
-		Email:        input.Email,
-		Username:     input.Username,
-		PhoneNumber:  input.PhoneNumber,
-		PasswordHash: passwordHash,
-		IsActive:     true,
-		FirstName:    input.FirstName,
-		LastName:     input.LastName,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return rowToUser(&row), nil
+	return r.CreateTx(ctx, r.q, input, passwordHash)
 }
 
 // GetByID retrieves a user by ID.
 func (r *UserRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
-	row, err := r.q.GetUserByID(ctx, uuidToPgtype(id))
-	if err != nil {
-		return nil, translateError(err)
-	}
-	return getUserByIDRowToUser(&row), nil
+	return r.GetByIDTx(ctx, r.q, id)
 }
 
 // GetByEmail retrieves a user by email.
@@ -163,13 +151,52 @@ func (r *UserRepository) UpdateLastLogin(ctx context.Context, id uuid.UUID) erro
 
 // SoftDelete marks a user as deleted.
 func (r *UserRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.q.SoftDeleteUser(ctx, uuidToPgtype(id))
-	return translateError(err)
+	return r.SoftDeleteTx(ctx, r.q, id)
 }
 
 // EmailExists checks if an email is already registered.
 func (r *UserRepository) EmailExists(ctx context.Context, email string) (bool, error) {
-	_, err := r.q.GetUserByEmail(ctx, email)
+	return r.EmailExistsTx(ctx, r.q, email)
+}
+
+// UsernameExists checks if a username is already taken.
+func (r *UserRepository) UsernameExists(ctx context.Context, username string) (bool, error) {
+	return r.UsernameExistsTx(ctx, r.q, username)
+}
+
+// ============================================================================
+// Transaction Methods (use provided queries)
+// ============================================================================
+
+// CreateTx creates a user within a transaction.
+func (r *UserRepository) CreateTx(ctx context.Context, q *db.Queries, input domain.CreateUserInput, passwordHash string) (*domain.User, error) {
+	row, err := q.CreateUser(ctx, db.CreateUserParams{
+		Email:        input.Email,
+		Username:     input.Username,
+		PhoneNumber:  input.PhoneNumber,
+		PasswordHash: passwordHash,
+		IsActive:     true,
+		FirstName:    input.FirstName,
+		LastName:     input.LastName,
+	})
+	if err != nil {
+		return nil, translateError(err)
+	}
+	return rowToUser(&row), nil
+}
+
+// GetByIDTx retrieves a user by ID within a transaction.
+func (r *UserRepository) GetByIDTx(ctx context.Context, q *db.Queries, id uuid.UUID) (*domain.User, error) {
+	row, err := q.GetUserByID(ctx, uuidToPgtype(id))
+	if err != nil {
+		return nil, translateError(err)
+	}
+	return getUserByIDRowToUser(&row), nil
+}
+
+// EmailExistsTx checks email existence within a transaction.
+func (r *UserRepository) EmailExistsTx(ctx context.Context, q *db.Queries, email string) (bool, error) {
+	_, err := q.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
@@ -179,9 +206,9 @@ func (r *UserRepository) EmailExists(ctx context.Context, email string) (bool, e
 	return true, nil
 }
 
-// UsernameExists checks if a username is already taken.
-func (r *UserRepository) UsernameExists(ctx context.Context, username string) (bool, error) {
-	_, err := r.q.GetUserByUsername(ctx, username)
+// UsernameExistsTx checks username existence within a transaction.
+func (r *UserRepository) UsernameExistsTx(ctx context.Context, q *db.Queries, username string) (bool, error) {
+	_, err := q.GetUserByUsername(ctx, username)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
@@ -190,6 +217,16 @@ func (r *UserRepository) UsernameExists(ctx context.Context, username string) (b
 	}
 	return true, nil
 }
+
+// SoftDeleteTx marks a user as deleted within a transaction.
+func (r *UserRepository) SoftDeleteTx(ctx context.Context, q *db.Queries, id uuid.UUID) error {
+	_, err := q.SoftDeleteUser(ctx, uuidToPgtype(id))
+	return translateError(err)
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
 // translateError converts database errors to domain errors.
 func translateError(err error) error {
@@ -215,7 +252,7 @@ func pgtypeToUUID(id pgtype.UUID) uuid.UUID {
 	return id.Bytes
 }
 
-// pgtypeTimestampToTime converts pgtype.Timestamp to *time.Time.
+// pgtypeToTime converts pgtype.Timestamp to *time.Time.
 func pgtypeToTime(ts pgtype.Timestamp) *time.Time {
 	if !ts.Valid {
 		return nil
@@ -223,8 +260,9 @@ func pgtypeToTime(ts pgtype.Timestamp) *time.Time {
 	return &ts.Time
 }
 
-// Row conversion functions for different query result types.
-// These are necessary because sqlc generates different row types for different queries.
+// ============================================================================
+// Row Conversion Functions
+// ============================================================================
 
 func rowToUser(row *db.CreateUserRow) *domain.User {
 	return &domain.User{

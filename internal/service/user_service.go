@@ -25,7 +25,7 @@ func (s *UserService) Create(ctx context.Context, input domain.CreateUserInput) 
 	// Check email uniqueness
 	exists, err := s.repo.EmailExists(ctx, input.Email)
 	if err != nil {
-		return nil, err
+		return nil, domain.WrapError(domain.CodeInternal, "failed to check email", err)
 	}
 	if exists {
 		return nil, domain.ErrEmailAlreadyExists
@@ -34,7 +34,7 @@ func (s *UserService) Create(ctx context.Context, input domain.CreateUserInput) 
 	// Check username uniqueness
 	exists, err = s.repo.UsernameExists(ctx, input.Username)
 	if err != nil {
-		return nil, err
+		return nil, domain.WrapError(domain.CodeInternal, "failed to check username", err)
 	}
 	if exists {
 		return nil, domain.ErrUsernameAlreadyExists
@@ -43,11 +43,16 @@ func (s *UserService) Create(ctx context.Context, input domain.CreateUserInput) 
 	// Hash password
 	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, err
+		return nil, domain.WrapError(domain.CodeInternal, "failed to hash password", err)
 	}
 
 	// Create user
-	return s.repo.Create(ctx, input, string(hash))
+	user, err := s.repo.Create(ctx, input, string(hash))
+	if err != nil {
+		return nil, domain.WrapError(domain.CodeInternal, "failed to create user", err)
+	}
+
+	return user, nil
 }
 
 // GetByID retrieves a user by their ID.
@@ -70,7 +75,7 @@ func (s *UserService) UpdateEmail(ctx context.Context, id uuid.UUID, email strin
 	// Check if new email is already taken
 	exists, err := s.repo.EmailExists(ctx, email)
 	if err != nil {
-		return nil, err
+		return nil, domain.WrapError(domain.CodeInternal, "failed to check email", err)
 	}
 	if exists {
 		return nil, domain.ErrEmailAlreadyExists
@@ -83,7 +88,7 @@ func (s *UserService) UpdateEmail(ctx context.Context, id uuid.UUID, email strin
 func (s *UserService) UpdateUsername(ctx context.Context, id uuid.UUID, username string) (*domain.User, error) {
 	exists, err := s.repo.UsernameExists(ctx, username)
 	if err != nil {
-		return nil, err
+		return nil, domain.WrapError(domain.CodeInternal, "failed to check username", err)
 	}
 	if exists {
 		return nil, domain.ErrUsernameAlreadyExists
@@ -96,7 +101,7 @@ func (s *UserService) UpdateUsername(ctx context.Context, id uuid.UUID, username
 func (s *UserService) UpdatePassword(ctx context.Context, id uuid.UUID, newPassword string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
-		return err
+		return domain.WrapError(domain.CodeInternal, "failed to hash password", err)
 	}
 	return s.repo.UpdatePassword(ctx, id, string(hash))
 }

@@ -5,13 +5,19 @@ package repository
 import (
 	"context"
 
+	"github.com/bsrodrigue/appshare-backend/internal/db"
 	"github.com/bsrodrigue/appshare-backend/internal/domain"
 	"github.com/google/uuid"
 )
 
 // UserRepository defines the interface for user data access.
 // Services depend on this interface, not on concrete implementations.
+//
+// Methods ending in "Tx" accept a transaction-aware Queries object.
+// Use these when you need to perform multiple operations atomically.
 type UserRepository interface {
+	// ========== Standard Methods (auto-commit) ==========
+
 	// Create creates a new user and returns it.
 	Create(ctx context.Context, input domain.CreateUserInput, passwordHash string) (*domain.User, error)
 
@@ -56,4 +62,22 @@ type UserRepository interface {
 
 	// UsernameExists checks if a username is already taken.
 	UsernameExists(ctx context.Context, username string) (bool, error)
+
+	// ========== Transaction Methods ==========
+	// These methods use the provided Queries (which may be transaction-aware).
+
+	// CreateTx creates a user within a transaction.
+	CreateTx(ctx context.Context, q *db.Queries, input domain.CreateUserInput, passwordHash string) (*domain.User, error)
+
+	// GetByIDTx retrieves a user by ID within a transaction.
+	GetByIDTx(ctx context.Context, q *db.Queries, id uuid.UUID) (*domain.User, error)
+
+	// EmailExistsTx checks email existence within a transaction.
+	EmailExistsTx(ctx context.Context, q *db.Queries, email string) (bool, error)
+
+	// UsernameExistsTx checks username existence within a transaction.
+	UsernameExistsTx(ctx context.Context, q *db.Queries, username string) (bool, error)
+
+	// SoftDeleteTx marks a user as deleted within a transaction.
+	SoftDeleteTx(ctx context.Context, q *db.Queries, id uuid.UUID) error
 }

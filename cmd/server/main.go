@@ -12,20 +12,24 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/bsrodrigue/appshare-backend/internal/auth"
 	"github.com/bsrodrigue/appshare-backend/internal/config"
 	"github.com/bsrodrigue/appshare-backend/internal/db"
 	"github.com/bsrodrigue/appshare-backend/internal/handler"
+	"github.com/bsrodrigue/appshare-backend/internal/handler/middleware"
+	"github.com/bsrodrigue/appshare-backend/internal/logger"
 	"github.com/bsrodrigue/appshare-backend/internal/repository/postgres"
 	"github.com/bsrodrigue/appshare-backend/internal/service"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
 
@@ -41,26 +45,73 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
+	// ========== Logging ==========
+
+	// Set up structured logger
+	logCfg := logger.Config{
+		Level:     cfg.LogLevel,
+		Format:    cfg.LogFormat,
+		Output:    "stdout",
+		AddSource: cfg.Environment == "production",
+	}
+	if err := logger.SetDefault(logCfg); err != nil {
+		log.Fatalf("Failed to set up logger: %v", err)
+	}
+
+	slog.Info("Starting AppShare API",
+		slog.String("environment", cfg.Environment),
+		slog.String("log_level", cfg.LogLevel),
+		slog.String("log_format", cfg.LogFormat),
+	)
+
 	// Create context for database connection
 	ctx := context.Background()
 
 	// ========== Infrastructure ==========
 
-	// Database connection
-	conn, err := pgx.Connect(ctx, cfg.DatabaseURL)
+	// Database connection pool
+	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("Unable to connect to database: %v", err)
+		slog.Error("Unable to parse database URL", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
-	defer conn.Close(ctx)
 
-	// Verify database connection
-	if err := conn.Ping(ctx); err != nil {
-		log.Fatalf("Unable to ping database: %v", err)
+	poolConfig.MaxConns = 25
+	poolConfig.MinConns = 5
+	poolConfig.MaxConnLifetime = time.Hour
+	poolConfig.MaxConnIdleTime = 30 * time.Minute
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		slog.Error("Unable to connect to database", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
-	log.Println("✓ Database connected")
+	defer pool.Close()
+
+	if err := pool.Ping(ctx); err != nil {
+		slog.Error("Unable to ping database", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	slog.Info("Database connected", slog.Int("max_conns", int(poolConfig.MaxConns)))
 
 	// sqlc queries
-	queries := db.New(conn)
+	queries := db.New(pool)
+
+	// Transaction manager
+	txManager := db.NewTxManager(pool)
+
+	// JWT service
+	jwtConfig := auth.JWTConfig{
+		SecretKey:            cfg.JWTSecretKey,
+		AccessTokenDuration:  cfg.JWTAccessTokenDuration,
+		RefreshTokenDuration: cfg.JWTRefreshTokenDuration,
+		Issuer:               cfg.JWTIssuer,
+	}
+	jwtService := auth.NewJWTService(jwtConfig)
+	slog.Info("JWT configured",
+		slog.Duration("access_token_duration", cfg.JWTAccessTokenDuration),
+		slog.Duration("refresh_token_duration", cfg.JWTRefreshTokenDuration),
+	)
 
 	// ========== Repositories ==========
 
@@ -70,11 +121,18 @@ func main() {
 	// ========== Services ==========
 
 	userService := service.NewUserService(userRepo)
-	authService := service.NewAuthService(userRepo)
-	projectService := service.NewProjectService(projectRepo, userRepo)
+	authService := service.NewAuthService(userRepo, jwtService)
+	projectService := service.NewProjectService(projectRepo, userRepo, txManager)
 
-	// Silence unused variable warning (will be used when we add project handlers)
-	_ = projectService
+	_ = projectService // Will be used when we add project handlers
+
+	// ========== Middleware ==========
+
+	// Logging middleware
+	loggingMiddleware := middleware.NewLoggingMiddleware(middleware.DefaultLoggingConfig())
+
+	// Auth middleware
+	authMiddleware := middleware.NewAuthMiddleware(jwtService)
 
 	// ========== Handlers ==========
 
@@ -85,18 +143,50 @@ func main() {
 	// ========== Router ==========
 
 	mux := http.NewServeMux()
-	api := humago.New(mux, huma.DefaultConfig("AppShare API", "1.0.0"))
 
-	// Register all routes
+	// Configure Huma with security scheme
+	humaConfig := huma.DefaultConfig("AppShare API", "1.0.0")
+	humaConfig.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+		"bearer": {
+			Type:         "http",
+			Scheme:       "bearer",
+			BearerFormat: "JWT",
+			Description:  "JWT access token. Get one from /auth/login or /auth/register",
+		},
+	}
+
+	api := humago.New(mux, humaConfig)
+
+	// Register public routes
 	systemHandler.Register(api)
-	userHandler.Register(api)
-	authHandler.Register(api)
+	authHandler.Register(api) // Public auth routes (login, register, refresh)
+
+	// ========== Protected Routes ==========
+
+	protectedMux := http.NewServeMux()
+	protectedApi := humago.New(protectedMux, humaConfig)
+
+	// Register protected routes
+	authHandler.RegisterProtected(protectedApi)
+	userHandler.Register(protectedApi) // User CRUD requires auth
+
+	// Wrap protected routes with auth middleware
+	mux.Handle("/auth/me", authMiddleware.RequireAuth(protectedMux))
+	mux.Handle("/auth/change-password", authMiddleware.RequireAuth(protectedMux))
+	mux.Handle("/users", authMiddleware.RequireAuth(protectedMux))
+	mux.Handle("/users/", authMiddleware.RequireAuth(protectedMux))
+
+	// ========== Apply Global Middleware ==========
+
+	// Chain middlewares: Logging -> Router
+	var rootHandler http.Handler = mux
+	rootHandler = loggingMiddleware.Handler(rootHandler)
 
 	// ========== Server ==========
 
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      mux,
+		Handler:      rootHandler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -106,24 +196,27 @@ func main() {
 	go func() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-		<-sigChan
+		sig := <-sigChan
 
-		log.Println("Shutting down server...")
+		slog.Info("Shutting down server", slog.String("signal", sig.String()))
 
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("Server shutdown error: %v", err)
+			slog.Error("Server shutdown error", slog.String("error", err.Error()))
 		}
 	}()
 
-	log.Printf("✓ Server starting on :%s", cfg.Port)
-	log.Printf("✓ Documentation available at http://localhost:%s/docs", cfg.Port)
+	slog.Info("Server starting",
+		slog.String("port", cfg.Port),
+		slog.String("docs", "http://localhost:"+cfg.Port+"/docs"),
+	)
 
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
-		log.Fatalf("Server failed: %v", err)
+		slog.Error("Server failed", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 
-	log.Println("Server stopped gracefully")
+	slog.Info("Server stopped gracefully")
 }

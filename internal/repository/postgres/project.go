@@ -6,7 +6,6 @@ import (
 	"github.com/bsrodrigue/appshare-backend/internal/db"
 	"github.com/bsrodrigue/appshare-backend/internal/domain"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // ProjectRepository implements repository.ProjectRepository using PostgreSQL.
@@ -19,26 +18,18 @@ func NewProjectRepository(q *db.Queries) *ProjectRepository {
 	return &ProjectRepository{q: q}
 }
 
+// ============================================================================
+// Standard Methods (use internal queries)
+// ============================================================================
+
 // Create creates a new project.
 func (r *ProjectRepository) Create(ctx context.Context, input domain.CreateProjectInput) (*domain.Project, error) {
-	row, err := r.q.CreateProject(ctx, db.CreateProjectParams{
-		Title:       input.Title,
-		Description: input.Description,
-		OwnerID:     uuidToPgtype(input.OwnerID),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return projectToDoMain(&row), nil
+	return r.CreateTx(ctx, r.q, input)
 }
 
 // GetByID retrieves a project by ID.
 func (r *ProjectRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Project, error) {
-	row, err := r.q.GetProjectByID(ctx, uuidToPgtype(id))
-	if err != nil {
-		return nil, translateError(err)
-	}
-	return projectToDoMain(&row), nil
+	return r.GetByIDTx(ctx, r.q, id)
 }
 
 // ListByOwner retrieves all projects owned by a user.
@@ -94,7 +85,43 @@ func (r *ProjectRepository) Update(ctx context.Context, id uuid.UUID, title, des
 
 // TransferOwnership transfers the project to a new owner.
 func (r *ProjectRepository) TransferOwnership(ctx context.Context, id, newOwnerID uuid.UUID) (*domain.Project, error) {
-	row, err := r.q.TransferProjectOwnership(ctx, db.TransferProjectOwnershipParams{
+	return r.TransferOwnershipTx(ctx, r.q, id, newOwnerID)
+}
+
+// SoftDelete marks a project as deleted.
+func (r *ProjectRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
+	return r.SoftDeleteTx(ctx, r.q, id)
+}
+
+// ============================================================================
+// Transaction Methods (use provided queries)
+// ============================================================================
+
+// CreateTx creates a project within a transaction.
+func (r *ProjectRepository) CreateTx(ctx context.Context, q *db.Queries, input domain.CreateProjectInput) (*domain.Project, error) {
+	row, err := q.CreateProject(ctx, db.CreateProjectParams{
+		Title:       input.Title,
+		Description: input.Description,
+		OwnerID:     uuidToPgtype(input.OwnerID),
+	})
+	if err != nil {
+		return nil, translateError(err)
+	}
+	return projectToDoMain(&row), nil
+}
+
+// GetByIDTx retrieves a project by ID within a transaction.
+func (r *ProjectRepository) GetByIDTx(ctx context.Context, q *db.Queries, id uuid.UUID) (*domain.Project, error) {
+	row, err := q.GetProjectByID(ctx, uuidToPgtype(id))
+	if err != nil {
+		return nil, translateError(err)
+	}
+	return projectToDoMain(&row), nil
+}
+
+// TransferOwnershipTx transfers ownership within a transaction.
+func (r *ProjectRepository) TransferOwnershipTx(ctx context.Context, q *db.Queries, id, newOwnerID uuid.UUID) (*domain.Project, error) {
+	row, err := q.TransferProjectOwnership(ctx, db.TransferProjectOwnershipParams{
 		ID:      uuidToPgtype(id),
 		OwnerID: uuidToPgtype(newOwnerID),
 	})
@@ -104,11 +131,15 @@ func (r *ProjectRepository) TransferOwnership(ctx context.Context, id, newOwnerI
 	return projectToDoMain(&row), nil
 }
 
-// SoftDelete marks a project as deleted.
-func (r *ProjectRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.q.SoftDeleteProject(ctx, uuidToPgtype(id))
+// SoftDeleteTx marks a project as deleted within a transaction.
+func (r *ProjectRepository) SoftDeleteTx(ctx context.Context, q *db.Queries, id uuid.UUID) error {
+	_, err := q.SoftDeleteProject(ctx, uuidToPgtype(id))
 	return translateError(err)
 }
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
 // projectToDoMain converts a db.Project to a domain.Project.
 func projectToDoMain(row *db.Project) *domain.Project {
@@ -120,12 +151,4 @@ func projectToDoMain(row *db.Project) *domain.Project {
 		CreatedAt:   row.CreatedAt.Time,
 		UpdatedAt:   row.UpdatedAt.Time,
 	}
-}
-
-// pgtypeUUIDToUUID converts a pgtype.UUID to uuid.UUID.
-func pgtypeUUIDToUUID(id pgtype.UUID) uuid.UUID {
-	if !id.Valid {
-		return uuid.Nil
-	}
-	return id.Bytes
 }

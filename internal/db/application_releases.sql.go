@@ -157,13 +157,91 @@ func (q *Queries) ListReleasesByApplication(ctx context.Context, applicationID p
 	return items, nil
 }
 
+const listReleasesByEnvironment = `-- name: ListReleasesByEnvironment :many
+SELECT id, title, version_code, version_name, release_note, environment, application_id, created_at, updated_at, deleted_at FROM application_releases 
+WHERE application_id = $1 AND environment = $2 AND deleted_at IS NULL
+ORDER BY version_code DESC
+`
+
+type ListReleasesByEnvironmentParams struct {
+	ApplicationID pgtype.UUID        `json:"application_id"`
+	Environment   ReleaseEnvironment `json:"environment"`
+}
+
+func (q *Queries) ListReleasesByEnvironment(ctx context.Context, arg ListReleasesByEnvironmentParams) ([]ApplicationRelease, error) {
+	rows, err := q.db.Query(ctx, listReleasesByEnvironment, arg.ApplicationID, arg.Environment)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ApplicationRelease{}
+	for rows.Next() {
+		var i ApplicationRelease
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.VersionCode,
+			&i.VersionName,
+			&i.ReleaseNote,
+			&i.Environment,
+			&i.ApplicationID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const promoteRelease = `-- name: PromoteRelease :one
+UPDATE application_releases SET
+    environment = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, title, version_code, version_name, release_note, environment, application_id, created_at, updated_at, deleted_at
+`
+
+type PromoteReleaseParams struct {
+	ID          pgtype.UUID        `json:"id"`
+	Environment ReleaseEnvironment `json:"environment"`
+}
+
+// Change environment (e.g., development -> staging -> production)
+func (q *Queries) PromoteRelease(ctx context.Context, arg PromoteReleaseParams) (ApplicationRelease, error) {
+	row := q.db.QueryRow(ctx, promoteRelease, arg.ID, arg.Environment)
+	var i ApplicationRelease
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.VersionCode,
+		&i.VersionName,
+		&i.ReleaseNote,
+		&i.Environment,
+		&i.ApplicationID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const softDeleteApplicationRelease = `-- name: SoftDeleteApplicationRelease :one
+
 UPDATE application_releases SET
     deleted_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND deleted_at IS NULL
 RETURNING id, title, version_code, version_name, release_note, environment, application_id, created_at, updated_at, deleted_at
 `
 
+// ============================================================================
+// Delete Queries
+// ============================================================================
 func (q *Queries) SoftDeleteApplicationRelease(ctx context.Context, id pgtype.UUID) (ApplicationRelease, error) {
 	row := q.db.QueryRow(ctx, softDeleteApplicationRelease, id)
 	var i ApplicationRelease
@@ -182,7 +260,7 @@ func (q *Queries) SoftDeleteApplicationRelease(ctx context.Context, id pgtype.UU
 	return i, err
 }
 
-const updateApplicationRelease = `-- name: UpdateApplicationRelease :one
+const updateRelease = `-- name: UpdateRelease :one
 UPDATE application_releases SET
     title = $2,
     release_note = $3,
@@ -191,14 +269,81 @@ WHERE id = $1 AND deleted_at IS NULL
 RETURNING id, title, version_code, version_name, release_note, environment, application_id, created_at, updated_at, deleted_at
 `
 
-type UpdateApplicationReleaseParams struct {
+type UpdateReleaseParams struct {
 	ID          pgtype.UUID `json:"id"`
 	Title       string      `json:"title"`
 	ReleaseNote pgtype.Text `json:"release_note"`
 }
 
-func (q *Queries) UpdateApplicationRelease(ctx context.Context, arg UpdateApplicationReleaseParams) (ApplicationRelease, error) {
-	row := q.db.QueryRow(ctx, updateApplicationRelease, arg.ID, arg.Title, arg.ReleaseNote)
+// Full update for title + release_note
+func (q *Queries) UpdateRelease(ctx context.Context, arg UpdateReleaseParams) (ApplicationRelease, error) {
+	row := q.db.QueryRow(ctx, updateRelease, arg.ID, arg.Title, arg.ReleaseNote)
+	var i ApplicationRelease
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.VersionCode,
+		&i.VersionName,
+		&i.ReleaseNote,
+		&i.Environment,
+		&i.ApplicationID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const updateReleaseNote = `-- name: UpdateReleaseNote :one
+UPDATE application_releases SET
+    release_note = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, title, version_code, version_name, release_note, environment, application_id, created_at, updated_at, deleted_at
+`
+
+type UpdateReleaseNoteParams struct {
+	ID          pgtype.UUID `json:"id"`
+	ReleaseNote pgtype.Text `json:"release_note"`
+}
+
+func (q *Queries) UpdateReleaseNote(ctx context.Context, arg UpdateReleaseNoteParams) (ApplicationRelease, error) {
+	row := q.db.QueryRow(ctx, updateReleaseNote, arg.ID, arg.ReleaseNote)
+	var i ApplicationRelease
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.VersionCode,
+		&i.VersionName,
+		&i.ReleaseNote,
+		&i.Environment,
+		&i.ApplicationID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const updateReleaseTitle = `-- name: UpdateReleaseTitle :one
+
+UPDATE application_releases SET
+    title = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, title, version_code, version_name, release_note, environment, application_id, created_at, updated_at, deleted_at
+`
+
+type UpdateReleaseTitleParams struct {
+	ID    pgtype.UUID `json:"id"`
+	Title string      `json:"title"`
+}
+
+// ============================================================================
+// Granular Update Queries
+// ============================================================================
+func (q *Queries) UpdateReleaseTitle(ctx context.Context, arg UpdateReleaseTitleParams) (ApplicationRelease, error) {
+	row := q.db.QueryRow(ctx, updateReleaseTitle, arg.ID, arg.Title)
 	var i ApplicationRelease
 	err := row.Scan(
 		&i.ID,

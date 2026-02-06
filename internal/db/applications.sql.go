@@ -137,12 +137,16 @@ func (q *Queries) ListApplicationsByProject(ctx context.Context, projectID pgtyp
 }
 
 const softDeleteApplication = `-- name: SoftDeleteApplication :one
+
 UPDATE applications SET
     deleted_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND deleted_at IS NULL
 RETURNING id, title, package_name, description, project_id, created_at, updated_at, deleted_at
 `
 
+// ============================================================================
+// Delete Queries
+// ============================================================================
 func (q *Queries) SoftDeleteApplication(ctx context.Context, id pgtype.UUID) (Application, error) {
 	row := q.db.QueryRow(ctx, softDeleteApplication, id)
 	var i Application
@@ -174,8 +178,71 @@ type UpdateApplicationParams struct {
 	Description pgtype.Text `json:"description"`
 }
 
+// Full update for title + description
 func (q *Queries) UpdateApplication(ctx context.Context, arg UpdateApplicationParams) (Application, error) {
 	row := q.db.QueryRow(ctx, updateApplication, arg.ID, arg.Title, arg.Description)
+	var i Application
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.PackageName,
+		&i.Description,
+		&i.ProjectID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const updateApplicationDescription = `-- name: UpdateApplicationDescription :one
+UPDATE applications SET
+    description = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, title, package_name, description, project_id, created_at, updated_at, deleted_at
+`
+
+type UpdateApplicationDescriptionParams struct {
+	ID          pgtype.UUID `json:"id"`
+	Description pgtype.Text `json:"description"`
+}
+
+func (q *Queries) UpdateApplicationDescription(ctx context.Context, arg UpdateApplicationDescriptionParams) (Application, error) {
+	row := q.db.QueryRow(ctx, updateApplicationDescription, arg.ID, arg.Description)
+	var i Application
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.PackageName,
+		&i.Description,
+		&i.ProjectID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const updateApplicationTitle = `-- name: UpdateApplicationTitle :one
+
+UPDATE applications SET
+    title = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, title, package_name, description, project_id, created_at, updated_at, deleted_at
+`
+
+type UpdateApplicationTitleParams struct {
+	ID    pgtype.UUID `json:"id"`
+	Title string      `json:"title"`
+}
+
+// ============================================================================
+// Granular Update Queries
+// ============================================================================
+func (q *Queries) UpdateApplicationTitle(ctx context.Context, arg UpdateApplicationTitleParams) (Application, error) {
+	row := q.db.QueryRow(ctx, updateApplicationTitle, arg.ID, arg.Title)
 	var i Application
 	err := row.Scan(
 		&i.ID,

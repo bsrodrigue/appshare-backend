@@ -135,6 +135,17 @@ type Artifact struct {
 	DeletedAt  pgtype.Timestamp `json:"deleted_at"`
 }
 
+type MembershipPermission struct {
+	MembershipID pgtype.UUID `json:"membership_id"`
+	PermissionID int32       `json:"permission_id"`
+}
+
+type Permission struct {
+	ID          int32       `json:"id"`
+	Key         string      `json:"key"`
+	Description pgtype.Text `json:"description"`
+}
+
 type Project struct {
 	ID          pgtype.UUID      `json:"id"`
 	Title       string           `json:"title"`
@@ -153,6 +164,16 @@ type ProjectInvite struct {
 	DeletedAt     pgtype.Timestamp    `json:"deleted_at"`
 	ProjectID     pgtype.UUID         `json:"project_id"`
 	InvitedUserID pgtype.UUID         `json:"invited_user_id"`
+}
+
+type ProjectMembership struct {
+	ID        pgtype.UUID      `json:"id"`
+	Role      string           `json:"role"`
+	ProjectID pgtype.UUID      `json:"project_id"`
+	UserID    pgtype.UUID      `json:"user_id"`
+	CreatedAt pgtype.Timestamp `json:"created_at"`
+	UpdatedAt pgtype.Timestamp `json:"updated_at"`
+	DeletedAt pgtype.Timestamp `json:"deleted_at"`
 }
 
 type User struct {

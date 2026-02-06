@@ -106,14 +106,46 @@ func (q *Queries) ListProjectsByOwner(ctx context.Context, ownerID pgtype.UUID) 
 }
 
 const softDeleteProject = `-- name: SoftDeleteProject :one
+
 UPDATE projects SET
     deleted_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND deleted_at IS NULL
 RETURNING id, title, description, owner_id, created_at, updated_at, deleted_at
 `
 
+// ============================================================================
+// Delete Queries
+// ============================================================================
 func (q *Queries) SoftDeleteProject(ctx context.Context, id pgtype.UUID) (Project, error) {
 	row := q.db.QueryRow(ctx, softDeleteProject, id)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Description,
+		&i.OwnerID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const transferProjectOwnership = `-- name: TransferProjectOwnership :one
+UPDATE projects SET
+    owner_id = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, title, description, owner_id, created_at, updated_at, deleted_at
+`
+
+type TransferProjectOwnershipParams struct {
+	ID      pgtype.UUID `json:"id"`
+	OwnerID pgtype.UUID `json:"owner_id"`
+}
+
+func (q *Queries) TransferProjectOwnership(ctx context.Context, arg TransferProjectOwnershipParams) (Project, error) {
+	row := q.db.QueryRow(ctx, transferProjectOwnership, arg.ID, arg.OwnerID)
 	var i Project
 	err := row.Scan(
 		&i.ID,
@@ -142,8 +174,69 @@ type UpdateProjectParams struct {
 	Description string      `json:"description"`
 }
 
+// Full update when you need to change both title and description
 func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error) {
 	row := q.db.QueryRow(ctx, updateProject, arg.ID, arg.Title, arg.Description)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Description,
+		&i.OwnerID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const updateProjectDescription = `-- name: UpdateProjectDescription :one
+UPDATE projects SET
+    description = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, title, description, owner_id, created_at, updated_at, deleted_at
+`
+
+type UpdateProjectDescriptionParams struct {
+	ID          pgtype.UUID `json:"id"`
+	Description string      `json:"description"`
+}
+
+func (q *Queries) UpdateProjectDescription(ctx context.Context, arg UpdateProjectDescriptionParams) (Project, error) {
+	row := q.db.QueryRow(ctx, updateProjectDescription, arg.ID, arg.Description)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Description,
+		&i.OwnerID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const updateProjectTitle = `-- name: UpdateProjectTitle :one
+
+UPDATE projects SET
+    title = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, title, description, owner_id, created_at, updated_at, deleted_at
+`
+
+type UpdateProjectTitleParams struct {
+	ID    pgtype.UUID `json:"id"`
+	Title string      `json:"title"`
+}
+
+// ============================================================================
+// Granular Update Queries
+// ============================================================================
+func (q *Queries) UpdateProjectTitle(ctx context.Context, arg UpdateProjectTitleParams) (Project, error) {
+	row := q.db.QueryRow(ctx, updateProjectTitle, arg.ID, arg.Title)
 	var i Project
 	err := row.Scan(
 		&i.ID,

@@ -11,8 +11,8 @@ CREATE TABLE project_memberships (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     
     -- Timestamps
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP,
     
     UNIQUE(project_id, user_id)

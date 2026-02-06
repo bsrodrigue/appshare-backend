@@ -21,13 +21,36 @@ SELECT * FROM applications
 WHERE project_id = $1 AND deleted_at IS NULL
 ORDER BY created_at DESC;
 
+-- ============================================================================
+-- Granular Update Queries
+-- ============================================================================
+
+-- name: UpdateApplicationTitle :one
+UPDATE applications SET
+    title = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING *;
+
+-- name: UpdateApplicationDescription :one
+UPDATE applications SET
+    description = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING *;
+
 -- name: UpdateApplication :one
+-- Full update for title + description
 UPDATE applications SET
     title = $2,
     description = $3,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $1 AND deleted_at IS NULL
 RETURNING *;
+
+-- ============================================================================
+-- Delete Queries
+-- ============================================================================
 
 -- name: SoftDeleteApplication :one
 UPDATE applications SET

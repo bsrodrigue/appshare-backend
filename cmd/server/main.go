@@ -1,3 +1,12 @@
+// Package main is the entry point for the AppShare API server.
+// This file should ONLY handle:
+//   - Loading configuration
+//   - Creating infrastructure (database connections)
+//   - Wiring up dependencies
+//   - Starting the server
+//
+// Business logic belongs in internal/service.
+// HTTP handling belongs in internal/handler.
 package main
 
 import (
@@ -5,108 +14,116 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"github.com/bsrodrigue/appshare-backend/internal/config"
 	"github.com/bsrodrigue/appshare-backend/internal/db"
+	"github.com/bsrodrigue/appshare-backend/internal/handler"
+	"github.com/bsrodrigue/appshare-backend/internal/repository/postgres"
+	"github.com/bsrodrigue/appshare-backend/internal/service"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
 )
 
-// ApiResponse defines the general structure for all API responses
-type ApiResponse[T any] struct {
-	Status  int    `json:"status" doc:"HTTP status code"`
-	Message string `json:"message" doc:"Brief description of the response"`
-	Data    T      `json:"data" doc:"The actual response payload"`
-}
-
-// UserListResponse is the specific response for listing users
-type UserListResponse struct {
-	Body ApiResponse[[]db.User]
-}
-
 func main() {
-	// Load .env file
+	// Load .env file (optional - allows running without it in production)
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, relying on environment variables")
 	}
 
-	ctx := context.Background()
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		user := os.Getenv("POSTGRES_USER")
-		pass := os.Getenv("POSTGRES_PASSWORD")
-		dbName := os.Getenv("POSTGRES_DB")
-		host := os.Getenv("POSTGRES_HOST")
-		if host == "" {
-			host = "localhost"
-		}
-		port := os.Getenv("POSTGRES_PORT")
-		if port == "" {
-			port = "5432"
-		}
-		dbURL = "postgres://" + user + ":" + pass + "@" + host + ":" + port + "/" + dbName + "?sslmode=disable"
+	// Load and validate configuration
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	conn, err := pgx.Connect(ctx, dbURL)
+	// Create context for database connection
+	ctx := context.Background()
+
+	// ========== Infrastructure ==========
+
+	// Database connection
+	conn, err := pgx.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("Unable to connect to database: %v\n", err)
+		log.Fatalf("Unable to connect to database: %v", err)
 	}
 	defer conn.Close(ctx)
 
+	// Verify database connection
+	if err := conn.Ping(ctx); err != nil {
+		log.Fatalf("Unable to ping database: %v", err)
+	}
+	log.Println("✓ Database connected")
+
+	// sqlc queries
 	queries := db.New(conn)
 
-	// Create a new mux and wrap it with Huma
+	// ========== Repositories ==========
+
+	userRepo := postgres.NewUserRepository(queries)
+	projectRepo := postgres.NewProjectRepository(queries)
+
+	// ========== Services ==========
+
+	userService := service.NewUserService(userRepo)
+	authService := service.NewAuthService(userRepo)
+	projectService := service.NewProjectService(projectRepo, userRepo)
+
+	// Silence unused variable warning (will be used when we add project handlers)
+	_ = projectService
+
+	// ========== Handlers ==========
+
+	systemHandler := handler.NewSystemHandler()
+	userHandler := handler.NewUserHandler(userService)
+	authHandler := handler.NewAuthHandler(authService)
+
+	// ========== Router ==========
+
 	mux := http.NewServeMux()
 	api := humago.New(mux, huma.DefaultConfig("AppShare API", "1.0.0"))
 
-	// Register /health endpoint
-	huma.Register(api, huma.Operation{
-		OperationID: "health-check",
-		Method:      http.MethodGet,
-		Path:        "/health",
-		Summary:     "Health Check",
-		Description: "Verify the service is up and running.",
-		Tags:        []string{"System"},
-	}, func(ctx context.Context, input *struct{}) (*ApiResponse[string], error) {
-		return &ApiResponse[string]{
-			Status:  http.StatusOK,
-			Message: "Service is healthy",
-			Data:    "ok",
-		}, nil
-	})
+	// Register all routes
+	systemHandler.Register(api)
+	userHandler.Register(api)
+	authHandler.Register(api)
 
-	// Register /users endpoint
-	huma.Register(api, huma.Operation{
-		OperationID: "list-users",
-		Method:      http.MethodGet,
-		Path:        "/users",
-		Summary:     "List Users",
-		Description: "Retrieve a list of all active (non-deleted) users.",
-		Tags:        []string{"Users"},
-	}, func(ctx context.Context, input *struct{}) (*UserListResponse, error) {
-		users, err := queries.ListUsers(ctx)
-		if err != nil {
-			return nil, huma.Error500InternalServerError("Failed to fetch users", err)
-		}
+	// ========== Server ==========
 
-		return &UserListResponse{
-			Body: ApiResponse[[]db.User]{
-				Status:  http.StatusOK,
-				Message: "Users retrieved successfully",
-				Data:    users,
-			},
-		}, nil
-	})
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	server := &http.Server{
+		Addr:         ":" + cfg.Port,
+		Handler:      mux,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
-	log.Printf("Server running on :%s", port)
-	log.Printf("Documentation available at http://localhost:%s/docs", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	// Graceful shutdown
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan
+
+		log.Println("Shutting down server...")
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Server shutdown error: %v", err)
+		}
+	}()
+
+	log.Printf("✓ Server starting on :%s", cfg.Port)
+	log.Printf("✓ Documentation available at http://localhost:%s/docs", cfg.Port)
+
+	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("Server failed: %v", err)
 	}
+
+	log.Println("Server stopped gracefully")
 }

@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-// Config holds all application configuration.
-// All fields are validated at startup - fail fast if misconfigured.
 type Config struct {
 	// Server
 	Port        string
@@ -28,8 +26,6 @@ type Config struct {
 	JWTIssuer               string
 }
 
-// Load reads configuration from environment variables.
-// Returns an error if required variables are missing.
 func Load() (*Config, error) {
 	cfg := &Config{}
 
@@ -112,7 +108,6 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-// getEnvAsInt returns an environment variable as an integer, or a default.
 func getEnvAsInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
@@ -122,8 +117,6 @@ func getEnvAsInt(key string, defaultValue int) int {
 	return defaultValue
 }
 
-// getEnvAsDuration returns an environment variable as a duration, or a default.
-// The env var should be in minutes for access tokens, days for refresh tokens.
 func getEnvAsDuration(key string, defaultValue time.Duration) time.Duration {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {

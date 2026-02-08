@@ -18,10 +18,10 @@ import (
 // ApiResponse is the standard response wrapper for all endpoints.
 // Clients can use the 'code' field for programmatic error handling.
 type ApiResponse[T any] struct {
-	Status  int              `json:"status" doc:"HTTP status code"`
-	Code    domain.ErrorCode `json:"code,omitempty" doc:"Machine-readable error code for client-side handling"`
-	Message string           `json:"message" doc:"Brief description of the response"`
-	Data    T                `json:"data" doc:"The actual response payload"`
+	Status    int              `json:"status" doc:"HTTP status code"`
+	ErrorCode domain.ErrorCode `json:"code,omitempty" doc:"Machine-readable error code for client-side handling"`
+	Message   string           `json:"message" doc:"Brief description of the response"`
+	Data      T                `json:"data" doc:"The actual response payload"`
 }
 
 // ErrorDetail provides additional error information for clients.

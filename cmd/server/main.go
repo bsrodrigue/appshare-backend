@@ -1,12 +1,3 @@
-// Package main is the entry point for the AppShare API server.
-// This file should ONLY handle:
-//   - Loading configuration
-//   - Creating infrastructure (database connections)
-//   - Wiring up dependencies
-//   - Starting the server
-//
-// Business logic belongs in internal/service.
-// HTTP handling belongs in internal/handler.
 package main
 
 import (
@@ -54,6 +45,7 @@ func main() {
 		Output:    "stdout",
 		AddSource: cfg.Environment == "production",
 	}
+
 	if err := logger.SetDefault(logCfg); err != nil {
 		log.Fatalf("Failed to set up logger: %v", err)
 	}

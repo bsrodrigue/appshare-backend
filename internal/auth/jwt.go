@@ -1,4 +1,3 @@
-// Package auth provides JWT-based authentication.
 package auth
 
 import (

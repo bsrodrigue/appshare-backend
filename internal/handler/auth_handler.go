@@ -50,12 +50,8 @@ func (h *AuthHandler) Register(api huma.API) {
 		Description: "Exchange a valid refresh token for new access and refresh tokens.",
 		Tags:        []string{"Auth"},
 	}, h.refreshToken)
-
-	// Protected routes (auth required) - registered separately with middleware
 }
 
-// RegisterProtected registers protected auth routes.
-// Call this with routes that have auth middleware applied.
 func (h *AuthHandler) RegisterProtected(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "get-current-user",

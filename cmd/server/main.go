@@ -116,8 +116,6 @@ func main() {
 	authService := service.NewAuthService(userRepo, jwtService)
 	projectService := service.NewProjectService(projectRepo, userRepo, txManager)
 
-	_ = projectService // Will be used when we add project handlers
-
 	// ========== Middleware ==========
 
 	// Logging middleware
@@ -131,6 +129,7 @@ func main() {
 	systemHandler := handler.NewSystemHandler()
 	userHandler := handler.NewUserHandler(userService)
 	authHandler := handler.NewAuthHandler(authService)
+	projectHandler := handler.NewProjectHandler(projectService)
 
 	// ========== Router ==========
 
@@ -160,13 +159,16 @@ func main() {
 
 	// Register protected routes
 	authHandler.RegisterProtected(protectedApi)
-	userHandler.Register(protectedApi) // User CRUD requires auth
+	userHandler.Register(protectedApi)    // User CRUD requires auth
+	projectHandler.Register(protectedApi) // Project CRUD requires auth
 
 	// Wrap protected routes with auth middleware
 	mux.Handle("/auth/me", authMiddleware.RequireAuth(protectedMux))
 	mux.Handle("/auth/change-password", authMiddleware.RequireAuth(protectedMux))
 	mux.Handle("/users", authMiddleware.RequireAuth(protectedMux))
 	mux.Handle("/users/", authMiddleware.RequireAuth(protectedMux))
+	mux.Handle("/projects", authMiddleware.RequireAuth(protectedMux))
+	mux.Handle("/projects/", authMiddleware.RequireAuth(protectedMux))
 
 	// ========== Apply Global Middleware ==========
 

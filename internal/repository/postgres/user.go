@@ -4,13 +4,11 @@ package postgres
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/bsrodrigue/appshare-backend/internal/db"
 	"github.com/bsrodrigue/appshare-backend/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // UserRepository implements repository.UserRepository using PostgreSQL.
@@ -164,6 +162,11 @@ func (r *UserRepository) UsernameExists(ctx context.Context, username string) (b
 	return r.UsernameExistsTx(ctx, r.q, username)
 }
 
+// PhoneNumberExists checks if a phone number is already registered.
+func (r *UserRepository) PhoneNumberExists(ctx context.Context, phoneNumber string) (bool, error) {
+	return r.PhoneNumberExistsTx(ctx, r.q, phoneNumber)
+}
+
 // ============================================================================
 // Transaction Methods (use provided queries)
 // ============================================================================
@@ -201,7 +204,7 @@ func (r *UserRepository) EmailExistsTx(ctx context.Context, q *db.Queries, email
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
-		return false, err
+		return false, translateError(err)
 	}
 	return true, nil
 }
@@ -213,7 +216,19 @@ func (r *UserRepository) UsernameExistsTx(ctx context.Context, q *db.Queries, us
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
-		return false, err
+		return false, translateError(err)
+	}
+	return true, nil
+}
+
+// PhoneNumberExistsTx checks phone number existence within a transaction.
+func (r *UserRepository) PhoneNumberExistsTx(ctx context.Context, q *db.Queries, phoneNumber string) (bool, error) {
+	_, err := q.GetUserByPhoneNumber(ctx, phoneNumber)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, translateError(err)
 	}
 	return true, nil
 }
@@ -222,42 +237,6 @@ func (r *UserRepository) UsernameExistsTx(ctx context.Context, q *db.Queries, us
 func (r *UserRepository) SoftDeleteTx(ctx context.Context, q *db.Queries, id uuid.UUID) error {
 	_, err := q.SoftDeleteUser(ctx, uuidToPgtype(id))
 	return translateError(err)
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-// translateError converts database errors to domain errors.
-func translateError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.ErrNotFound
-	}
-	return err
-}
-
-// uuidToPgtype converts a google/uuid to pgtype.UUID.
-func uuidToPgtype(id uuid.UUID) pgtype.UUID {
-	return pgtype.UUID{Bytes: id, Valid: true}
-}
-
-// pgtypeToUUID converts a pgtype.UUID to google/uuid.
-func pgtypeToUUID(id pgtype.UUID) uuid.UUID {
-	if !id.Valid {
-		return uuid.Nil
-	}
-	return id.Bytes
-}
-
-// pgtypeToTime converts pgtype.Timestamp to *time.Time.
-func pgtypeToTime(ts pgtype.Timestamp) *time.Time {
-	if !ts.Valid {
-		return nil
-	}
-	return &ts.Time
 }
 
 // ============================================================================

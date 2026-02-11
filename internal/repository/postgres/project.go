@@ -36,7 +36,7 @@ func (r *ProjectRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 func (r *ProjectRepository) ListByOwner(ctx context.Context, ownerID uuid.UUID) ([]*domain.Project, error) {
 	rows, err := r.q.ListProjectsByOwner(ctx, uuidToPgtype(ownerID))
 	if err != nil {
-		return nil, err
+		return nil, translateError(err)
 	}
 
 	projects := make([]*domain.Project, len(rows))

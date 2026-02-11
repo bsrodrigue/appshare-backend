@@ -125,6 +125,15 @@ func (s *AuthService) Register(ctx context.Context, input domain.CreateUserInput
 		return nil, domain.ErrUsernameAlreadyExists
 	}
 
+	// Check phone number uniqueness
+	exists, err = s.userRepo.PhoneNumberExists(ctx, input.PhoneNumber)
+	if err != nil {
+		return nil, domain.WrapError(domain.CodeInternal, "failed to check phone number", err)
+	}
+	if exists {
+		return nil, domain.ErrPhoneAlreadyExists
+	}
+
 	// Hash password
 	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {

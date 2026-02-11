@@ -63,6 +63,9 @@ type UserRepository interface {
 	// UsernameExists checks if a username is already taken.
 	UsernameExists(ctx context.Context, username string) (bool, error)
 
+	// PhoneNumberExists checks if a phone number is already registered.
+	PhoneNumberExists(ctx context.Context, phoneNumber string) (bool, error)
+
 	// ========== Transaction Methods ==========
 	// These methods use the provided Queries (which may be transaction-aware).
 
@@ -77,6 +80,9 @@ type UserRepository interface {
 
 	// UsernameExistsTx checks username existence within a transaction.
 	UsernameExistsTx(ctx context.Context, q *db.Queries, username string) (bool, error)
+
+	// PhoneNumberExistsTx checks phone number existence within a transaction.
+	PhoneNumberExistsTx(ctx context.Context, q *db.Queries, phoneNumber string) (bool, error)
 
 	// SoftDeleteTx marks a user as deleted within a transaction.
 	SoftDeleteTx(ctx context.Context, q *db.Queries, id uuid.UUID) error

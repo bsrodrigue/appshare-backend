@@ -109,12 +109,16 @@ func main() {
 
 	userRepo := postgres.NewUserRepository(queries)
 	projectRepo := postgres.NewProjectRepository(queries)
+	appRepo := postgres.NewApplicationRepository(queries)
+	releaseRepo := postgres.NewReleaseRepository(queries)
 
 	// ========== Services ==========
 
 	userService := service.NewUserService(userRepo)
 	authService := service.NewAuthService(userRepo, jwtService)
 	projectService := service.NewProjectService(projectRepo, userRepo, txManager)
+	appService := service.NewApplicationService(appRepo, projectRepo)
+	releaseService := service.NewReleaseService(releaseRepo, appRepo, projectRepo)
 
 	// ========== Middleware ==========
 
@@ -130,6 +134,8 @@ func main() {
 	userHandler := handler.NewUserHandler(userService)
 	authHandler := handler.NewAuthHandler(authService)
 	projectHandler := handler.NewProjectHandler(projectService)
+	applicationHandler := handler.NewApplicationHandler(appService)
+	releaseHandler := handler.NewReleaseHandler(releaseService)
 
 	// ========== Router ==========
 
@@ -161,6 +167,8 @@ func main() {
 	authHandler.RegisterProtected(protectedApi)
 	userHandler.Register(protectedApi)    // User CRUD requires auth
 	projectHandler.Register(protectedApi) // Project CRUD requires auth
+	applicationHandler.Register(protectedApi)
+	releaseHandler.Register(protectedApi)
 
 	// Wrap protected routes with auth middleware
 	mux.Handle("/auth/me", authMiddleware.RequireAuth(protectedMux))
@@ -169,6 +177,10 @@ func main() {
 	mux.Handle("/users/", authMiddleware.RequireAuth(protectedMux))
 	mux.Handle("/projects", authMiddleware.RequireAuth(protectedMux))
 	mux.Handle("/projects/", authMiddleware.RequireAuth(protectedMux))
+	mux.Handle("/applications", authMiddleware.RequireAuth(protectedMux))
+	mux.Handle("/applications/", authMiddleware.RequireAuth(protectedMux))
+	mux.Handle("/releases", authMiddleware.RequireAuth(protectedMux))
+	mux.Handle("/releases/", authMiddleware.RequireAuth(protectedMux))
 
 	// ========== Apply Global Middleware ==========
 

@@ -48,3 +48,16 @@ func pgtypeToTime(ts pgtype.Timestamp) *time.Time {
 	}
 	return &ts.Time
 }
+
+// stringToPgtype converts a string to pgtype.Text.
+func stringToPgtype(s string) pgtype.Text {
+	return pgtype.Text{String: s, Valid: s != ""}
+}
+
+// pgtypeToString converts a pgtype.Text to string.
+func pgtypeToString(t pgtype.Text) string {
+	if !t.Valid {
+		return ""
+	}
+	return t.String
+}

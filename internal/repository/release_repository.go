@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 
+	"github.com/bsrodrigue/appshare-backend/internal/db"
 	"github.com/bsrodrigue/appshare-backend/internal/domain"
 	"github.com/google/uuid"
 )
@@ -35,4 +36,12 @@ type ReleaseRepository interface {
 
 	// VersionExists checks if a version code already exists for an application in an environment.
 	VersionExists(ctx context.Context, appID uuid.UUID, versionCode int32, env domain.ReleaseEnvironment) (bool, error)
+
+	// ========== Transaction Methods ==========
+
+	// CreateTx creates a new release within a transaction.
+	CreateTx(ctx context.Context, q *db.Queries, input domain.CreateReleaseInput) (*domain.ApplicationRelease, error)
+
+	// GetByIDTx retrieves a release by its ID within a transaction.
+	GetByIDTx(ctx context.Context, q *db.Queries, id uuid.UUID) (*domain.ApplicationRelease, error)
 }

@@ -128,6 +128,33 @@ func (r *ReleaseRepository) VersionExists(ctx context.Context, appID uuid.UUID, 
 	return false, nil
 }
 
+// ========== Transaction Methods ==========
+
+// CreateTx creates a new release within a transaction.
+func (r *ReleaseRepository) CreateTx(ctx context.Context, q *db.Queries, input domain.CreateReleaseInput) (*domain.ApplicationRelease, error) {
+	row, err := q.CreateApplicationRelease(ctx, db.CreateApplicationReleaseParams{
+		Title:         input.Title,
+		VersionCode:   input.VersionCode,
+		VersionName:   input.VersionName,
+		ReleaseNote:   stringToPgtype(input.ReleaseNote),
+		Environment:   db.ReleaseEnvironment(input.Environment),
+		ApplicationID: uuidToPgtype(input.ApplicationID),
+	})
+	if err != nil {
+		return nil, translateError(err)
+	}
+	return rowToRelease(&row), nil
+}
+
+// GetByIDTx retrieves a release by its ID within a transaction.
+func (r *ReleaseRepository) GetByIDTx(ctx context.Context, q *db.Queries, id uuid.UUID) (*domain.ApplicationRelease, error) {
+	row, err := q.GetApplicationReleaseByID(ctx, uuidToPgtype(id))
+	if err != nil {
+		return nil, translateError(err)
+	}
+	return rowToRelease(&row), nil
+}
+
 // Helper to convert DB row to domain ApplicationRelease
 func rowToRelease(row *db.ApplicationRelease) *domain.ApplicationRelease {
 	return &domain.ApplicationRelease{

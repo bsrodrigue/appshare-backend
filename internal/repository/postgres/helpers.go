@@ -61,3 +61,16 @@ func pgtypeToString(t pgtype.Text) string {
 	}
 	return t.String
 }
+
+// pgtypeToStringPtr converts a pgtype.Text to *string.
+func pgtypeToStringPtr(t pgtype.Text) *string {
+	if !t.Valid {
+		return nil
+	}
+	return &t.String
+}
+
+// pgtypeToTimePtr is an alias for pgtypeToTime for consistency naming.
+func pgtypeToTimePtr(ts pgtype.Timestamp) *time.Time {
+	return pgtypeToTime(ts)
+}

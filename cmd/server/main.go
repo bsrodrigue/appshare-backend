@@ -18,6 +18,7 @@ import (
 	"github.com/bsrodrigue/appshare-backend/internal/logger"
 	"github.com/bsrodrigue/appshare-backend/internal/repository/postgres"
 	"github.com/bsrodrigue/appshare-backend/internal/service"
+	"github.com/bsrodrigue/appshare-backend/internal/storage"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -105,12 +106,30 @@ func main() {
 		slog.Duration("refresh_token_duration", cfg.JWTRefreshTokenDuration),
 	)
 
+	// ========== Storage ==========
+
+	var storageSvc storage.Storage
+	if cfg.R2AccountID != "" {
+		storageSvc, err = storage.NewR2Storage(ctx, cfg.R2AccountID, cfg.R2AccessKeyID, cfg.R2SecretAccessKey, cfg.R2BucketName, cfg.R2PublicDomain)
+		if err != nil {
+			slog.Error("Failed to initialize R2 storage", slog.String("error", err.Error()))
+			if cfg.Environment == "production" {
+				os.Exit(1)
+			}
+		} else {
+			slog.Info("Cloudflare R2 storage initialized", slog.String("bucket", cfg.R2BucketName))
+		}
+	} else {
+		slog.Warn("Cloudflare R2 storage not configured (R2_ACCOUNT_ID missing)")
+	}
+
 	// ========== Repositories ==========
 
 	userRepo := postgres.NewUserRepository(queries)
 	projectRepo := postgres.NewProjectRepository(queries)
 	appRepo := postgres.NewApplicationRepository(queries)
 	releaseRepo := postgres.NewReleaseRepository(queries)
+	artifactRepo := postgres.NewArtifactRepository(queries)
 
 	// ========== Services ==========
 
@@ -118,24 +137,13 @@ func main() {
 	authService := service.NewAuthService(userRepo, jwtService)
 	projectService := service.NewProjectService(projectRepo, userRepo, txManager)
 	appService := service.NewApplicationService(appRepo, projectRepo)
-	releaseService := service.NewReleaseService(releaseRepo, appRepo, projectRepo)
+	releaseService := service.NewReleaseService(releaseRepo, appRepo, projectRepo, artifactRepo, storageSvc, txManager)
+	artifactService := service.NewArtifactService(artifactRepo, releaseRepo, appRepo, projectRepo, storageSvc)
+	fileService := service.NewFileService(storageSvc)
 
-	// ========== Middleware ==========
+	// ========== Auth Middleware ==========
 
-	// Logging middleware
-	loggingMiddleware := middleware.NewLoggingMiddleware(middleware.DefaultLoggingConfig())
-
-	// Auth middleware
 	authMiddleware := middleware.NewAuthMiddleware(jwtService)
-
-	// ========== Handlers ==========
-
-	systemHandler := handler.NewSystemHandler()
-	userHandler := handler.NewUserHandler(userService)
-	authHandler := handler.NewAuthHandler(authService)
-	projectHandler := handler.NewProjectHandler(projectService)
-	applicationHandler := handler.NewApplicationHandler(appService)
-	releaseHandler := handler.NewReleaseHandler(releaseService)
 
 	// ========== Router ==========
 
@@ -154,37 +162,39 @@ func main() {
 
 	api := humago.New(mux, humaConfig)
 
-	// Register public routes
+	// ========== Handlers ==========
+
+	systemHandler := handler.NewSystemHandler()
+	userHandler := handler.NewUserHandler(userService)
+	authHandler := handler.NewAuthHandler(authService)
+	projectHandler := handler.NewProjectHandler(projectService)
+	applicationHandler := handler.NewApplicationHandler(appService)
+	releaseHandler := handler.NewReleaseHandler(releaseService)
+	artifactHandler := handler.NewArtifactHandler(artifactService)
+	fileHandler := handler.NewFileHandler(fileService)
+
+	// Register all routes on the main API
 	systemHandler.Register(api)
-	authHandler.Register(api) // Public auth routes (login, register, refresh)
+	authHandler.Register(api)
 
-	// ========== Protected Routes ==========
-
+	// Sub-router for protected routes - This time we'll mount it correctly
 	protectedMux := http.NewServeMux()
 	protectedApi := humago.New(protectedMux, humaConfig)
 
-	// Register protected routes
 	authHandler.RegisterProtected(protectedApi)
-	userHandler.Register(protectedApi)    // User CRUD requires auth
-	projectHandler.Register(protectedApi) // Project CRUD requires auth
+	userHandler.Register(protectedApi)
+	projectHandler.Register(protectedApi)
 	applicationHandler.Register(protectedApi)
 	releaseHandler.Register(protectedApi)
+	artifactHandler.Register(protectedApi)
+	fileHandler.Register(protectedApi)
 
-	// Wrap protected routes with auth middleware
-	mux.Handle("/auth/me", authMiddleware.RequireAuth(protectedMux))
-	mux.Handle("/auth/change-password", authMiddleware.RequireAuth(protectedMux))
-	mux.Handle("/users", authMiddleware.RequireAuth(protectedMux))
-	mux.Handle("/users/", authMiddleware.RequireAuth(protectedMux))
-	mux.Handle("/projects", authMiddleware.RequireAuth(protectedMux))
-	mux.Handle("/projects/", authMiddleware.RequireAuth(protectedMux))
-	mux.Handle("/applications", authMiddleware.RequireAuth(protectedMux))
-	mux.Handle("/applications/", authMiddleware.RequireAuth(protectedMux))
-	mux.Handle("/releases", authMiddleware.RequireAuth(protectedMux))
-	mux.Handle("/releases/", authMiddleware.RequireAuth(protectedMux))
+	// The fix: use a catch-all route for protected routes to ensure path stripping/matching works correctly
+	mux.Handle("/", authMiddleware.RequireAuth(protectedMux))
 
 	// ========== Apply Global Middleware ==========
 
-	// Chain middlewares: Logging -> Router
+	loggingMiddleware := middleware.NewLoggingMiddleware(middleware.DefaultLoggingConfig())
 	var rootHandler http.Handler = mux
 	rootHandler = loggingMiddleware.Handler(rootHandler)
 

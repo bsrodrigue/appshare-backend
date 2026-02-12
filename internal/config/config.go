@@ -24,6 +24,13 @@ type Config struct {
 	JWTAccessTokenDuration  time.Duration
 	JWTRefreshTokenDuration time.Duration
 	JWTIssuer               string
+
+	// R2 Storage
+	R2AccountID       string
+	R2AccessKeyID     string
+	R2SecretAccessKey string
+	R2BucketName      string
+	R2PublicDomain    string
 }
 
 func Load() (*Config, error) {
@@ -69,6 +76,29 @@ func Load() (*Config, error) {
 	cfg.JWTAccessTokenDuration = getEnvAsDuration("JWT_ACCESS_TOKEN_MINUTES", 15*time.Minute)
 	cfg.JWTRefreshTokenDuration = getEnvAsDuration("JWT_REFRESH_TOKEN_DAYS", 7*24*time.Hour)
 	cfg.JWTIssuer = getEnv("JWT_ISSUER", "appshare")
+
+	// R2 config
+	cfg.R2AccountID = os.Getenv("R2_ACCOUNT_ID")
+	cfg.R2AccessKeyID = os.Getenv("R2_ACCESS_KEY_ID")
+	cfg.R2SecretAccessKey = os.Getenv("R2_SECRET_ACCESS_KEY")
+	cfg.R2BucketName = os.Getenv("R2_BUCKET_NAME")
+	cfg.R2PublicDomain = os.Getenv("R2_PUBLIC_DOMAIN")
+
+	// Validate production config
+	if cfg.Environment == "production" {
+		if cfg.R2AccountID == "" {
+			return nil, fmt.Errorf("R2_ACCOUNT_ID is required in production")
+		}
+		if cfg.R2AccessKeyID == "" {
+			return nil, fmt.Errorf("R2_ACCESS_KEY_ID is required in production")
+		}
+		if cfg.R2SecretAccessKey == "" {
+			return nil, fmt.Errorf("R2_SECRET_ACCESS_KEY is required in production")
+		}
+		if cfg.R2BucketName == "" {
+			return nil, fmt.Errorf("R2_BUCKET_NAME is required in production")
+		}
+	}
 
 	return cfg, nil
 }

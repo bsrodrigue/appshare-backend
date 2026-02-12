@@ -84,6 +84,16 @@ func (h *ReleaseHandler) Register(api huma.API) {
 		Tags:        []string{"Releases"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, h.listReleases)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "create-release-with-artifact",
+		Method:      http.MethodPost,
+		Path:        "/applications/{app_id}/releases/with-artifact",
+		Summary:     "Create Release with Artifact",
+		Description: "Create a new release and artifact by processing an existing uploaded file. The file must be a valid APK. Version info is extracted automatically.",
+		Tags:        []string{"Releases"},
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, h.createReleaseWithArtifact)
 }
 
 // ========== Request/Response Types ==========
@@ -173,6 +183,21 @@ type ListReleasesInput struct {
 // ListReleasesOutput is the response for listing releases.
 type ListReleasesOutput struct {
 	Body ApiResponse[[]ReleaseResponse]
+}
+
+// CreateReleaseWithArtifactInput is the request for creating a release with an artifact URL.
+type CreateReleaseWithArtifactInput struct {
+	AppID uuid.UUID `path:"app_id" doc:"Application ID"`
+	Body  struct {
+		ArtifactURL string                    `json:"artifact_url" required:"true" doc:"URL of the uploaded artifact (must be in our storage)"`
+		ReleaseNote string                    `json:"release_note" maxLength:"2000" doc:"Release notes"`
+		Environment domain.ReleaseEnvironment `json:"environment" required:"true" enum:"development,staging,production" doc:"Environment"`
+	}
+}
+
+// CreateReleaseWithArtifactOutput is the response for creating a release with an artifact.
+type CreateReleaseWithArtifactOutput struct {
+	Body ApiResponse[ReleaseResponse]
 }
 
 // ========== Handlers ==========
@@ -275,6 +300,22 @@ func (h *ReleaseHandler) listReleases(ctx context.Context, input *ListReleasesIn
 
 	return &ListReleasesOutput{
 		Body: ok("Releases retrieved successfully", responses),
+	}, nil
+}
+
+func (h *ReleaseHandler) createReleaseWithArtifact(ctx context.Context, input *CreateReleaseWithArtifactInput) (*CreateReleaseWithArtifactOutput, error) {
+	authUser := auth.UserFromContext(ctx)
+	if authUser == nil {
+		return nil, mapDomainError(domain.ErrUnauthorized)
+	}
+
+	release, err := h.releaseService.CreateReleaseWithArtifactURL(ctx, authUser.ID, input.AppID, input.Body.ArtifactURL, input.Body.ReleaseNote, input.Body.Environment)
+	if err != nil {
+		return nil, mapDomainError(err)
+	}
+
+	return &CreateReleaseWithArtifactOutput{
+		Body: created("Release and artifact created successfully", toReleaseResponse(release)),
 	}, nil
 }
 

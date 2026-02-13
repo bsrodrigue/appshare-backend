@@ -20,4 +20,7 @@ type Storage interface {
 
 	// Download returns a reader for the file at the given path.
 	Download(ctx context.Context, path string) (io.ReadCloser, error)
+
+	// ExtractStoragePath extracts the storage path from a URL.
+	ExtractStoragePath(url string) (string, bool)
 }

@@ -103,3 +103,30 @@ func (s *ArtifactService) CreateArtifact(ctx context.Context, userID uuid.UUID, 
 
 	return s.artifactRepo.Create(ctx, input)
 }
+
+// ListByRelease retrieves all artifacts for a release.
+func (s *ArtifactService) ListByRelease(ctx context.Context, userID uuid.UUID, releaseID uuid.UUID) ([]*domain.Artifact, error) {
+	// 1. Verify access (can user see this release?)
+	release, err := s.releaseRepo.GetByID(ctx, releaseID)
+	if err != nil {
+		return nil, err
+	}
+
+	app, err := s.appRepo.GetByID(ctx, release.ApplicationID)
+	if err != nil {
+		return nil, err
+	}
+
+	// For now, if they are project owner, they can see it.
+	// We might want to allow others later if we implement a "viewer" role.
+	project, err := s.projectRepo.GetByID(ctx, app.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+
+	if project.OwnerID != userID {
+		return nil, domain.ErrNotProjectOwner
+	}
+
+	return s.artifactRepo.ListByRelease(ctx, releaseID)
+}

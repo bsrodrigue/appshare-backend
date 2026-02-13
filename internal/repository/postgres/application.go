@@ -97,6 +97,20 @@ func (r *ApplicationRepository) PackageNameExists(ctx context.Context, packageNa
 	return true, nil
 }
 
+// CreateTx creates a new application within a transaction.
+func (r *ApplicationRepository) CreateTx(ctx context.Context, q *db.Queries, input domain.CreateApplicationInput) (*domain.Application, error) {
+	row, err := q.CreateApplication(ctx, db.CreateApplicationParams{
+		Title:       input.Title,
+		PackageName: input.PackageName,
+		Description: stringToPgtype(input.Description),
+		ProjectID:   uuidToPgtype(input.ProjectID),
+	})
+	if err != nil {
+		return nil, translateError(err)
+	}
+	return rowToApplication(&row), nil
+}
+
 // Helper to convert DB row to domain Application
 func rowToApplication(row *db.Application) *domain.Application {
 	return &domain.Application{

@@ -6,9 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
-	"strings"
 
 	"github.com/bsrodrigue/appshare-backend/internal/db"
 	"github.com/bsrodrigue/appshare-backend/internal/domain"
@@ -176,7 +174,7 @@ func (s *ReleaseService) CreateReleaseWithArtifactURL(ctx context.Context, userI
 
 	// 2. Download the file to a temporary location
 	// We need it as a local file for APK parsing
-	storagePath, isOurs := s.extractStoragePath(artifactURL)
+	storagePath, isOurs := s.storage.ExtractStoragePath(artifactURL)
 	var reader io.ReadCloser
 	if isOurs {
 		reader, err = s.storage.Download(ctx, storagePath)
@@ -189,6 +187,7 @@ func (s *ReleaseService) CreateReleaseWithArtifactURL(ctx context.Context, userI
 	}
 	defer reader.Close()
 
+	// Warning, can be dangerous with tmpfs (memory exhaustion)
 	tmpFile, err := os.CreateTemp("", "artifact-*.apk")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp file: %w", err)
@@ -257,19 +256,4 @@ func (s *ReleaseService) CreateReleaseWithArtifactURL(ctx context.Context, userI
 	}
 
 	return release, nil
-}
-
-func (s *ReleaseService) extractStoragePath(rawURL string) (string, bool) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "", false
-	}
-
-	// If it matches our public domain, strip the domain and return the path
-	// Example: https://pub-xxxx.r2.dev/uploads/user_id/file.apk
-	// Or custom domain: https://cdn.appshare.com/uploads/user_id/file.apk
-
-	path := strings.TrimPrefix(parsed.Path, "/")
-	// In a real app, you'd verify the host matches s.config.PublicDomain
-	return path, true
 }

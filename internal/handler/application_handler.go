@@ -74,6 +74,16 @@ func (h *ApplicationHandler) Register(api huma.API) {
 		Tags:        []string{"Applications"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, h.listApplications)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "create-application-from-binary",
+		Method:      http.MethodPost,
+		Path:        "/create-application-from-binary",
+		Summary:     "Create Application from Binary",
+		Description: "Create a new application, initial release and artifact from a single APK binary. Automatically extracts package name and versioning.",
+		Tags:        []string{"Applications"},
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, h.createApplicationFromBinary)
 }
 
 // ========== Request/Response Types ==========
@@ -146,6 +156,20 @@ type ListApplicationsInput struct {
 // ListApplicationsOutput is the response for listing applications.
 type ListApplicationsOutput struct {
 	Body ApiResponse[[]ApplicationResponse]
+}
+
+// CreateApplicationFromBinaryInput is the request for creating an application from a binary.
+type CreateApplicationFromBinaryInput struct {
+	Body struct {
+		ProjectID   uuid.UUID `json:"project_id" required:"true" doc:"Project ID"`
+		Title       string    `json:"title" required:"true" minLength:"3" maxLength:"100" doc:"Application title"`
+		ArtifactURL string    `json:"artifact_url" required:"true" doc:"URL of the artifact in storage"`
+	}
+}
+
+// CreateApplicationFromBinaryOutput is the response for creating an application from a binary.
+type CreateApplicationFromBinaryOutput struct {
+	Body ApiResponse[ApplicationResponse]
 }
 
 // ========== Handlers ==========
@@ -230,6 +254,26 @@ func (h *ApplicationHandler) listApplications(ctx context.Context, input *ListAp
 
 	return &ListApplicationsOutput{
 		Body: ok("Applications retrieved successfully", responses),
+	}, nil
+}
+
+func (h *ApplicationHandler) createApplicationFromBinary(ctx context.Context, input *CreateApplicationFromBinaryInput) (*CreateApplicationFromBinaryOutput, error) {
+	authUser := auth.UserFromContext(ctx)
+	if authUser == nil {
+		return nil, mapDomainError(domain.ErrUnauthorized)
+	}
+
+	app, err := h.appService.CreateFromArtifact(ctx, authUser.ID, domain.CreateApplicationFromArtifactInput{
+		ProjectID:   input.Body.ProjectID,
+		Title:       input.Body.Title,
+		ArtifactURL: input.Body.ArtifactURL,
+	})
+	if err != nil {
+		return nil, mapDomainError(err)
+	}
+
+	return &CreateApplicationFromBinaryOutput{
+		Body: created("Application profile created from binary successfully", toApplicationResponse(app)),
 	}, nil
 }
 

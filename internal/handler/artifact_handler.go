@@ -42,6 +42,16 @@ func (h *ArtifactHandler) Register(api huma.API) {
 		Tags:        []string{"Artifacts"},
 		Security:    []map[string][]string{{"bearer": {}}},
 	}, h.createArtifact)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "list-artifacts-by-release",
+		Method:      http.MethodGet,
+		Path:        "/releases/{release_id}/artifacts",
+		Summary:     "List Artifacts",
+		Description: "List all artifacts for a specific release.",
+		Tags:        []string{"Artifacts"},
+		Security:    []map[string][]string{{"bearer": {}}},
+	}, h.listByRelease)
 }
 
 // ========== Request/Response Types ==========
@@ -70,6 +80,14 @@ type CreateArtifactInput struct {
 
 type CreateArtifactOutput struct {
 	Body ApiResponse[domain.Artifact]
+}
+
+type ListArtifactsInput struct {
+	ReleaseID uuid.UUID `path:"release_id" doc:"Release ID"`
+}
+
+type ListArtifactsOutput struct {
+	Body ApiResponse[[]domain.Artifact]
 }
 
 // ========== Handlers ==========
@@ -110,5 +128,27 @@ func (h *ArtifactHandler) createArtifact(ctx context.Context, input *CreateArtif
 
 	return &CreateArtifactOutput{
 		Body: created("Artifact recorded successfully", *artifact),
+	}, nil
+}
+
+func (h *ArtifactHandler) listByRelease(ctx context.Context, input *ListArtifactsInput) (*ListArtifactsOutput, error) {
+	authUser := auth.UserFromContext(ctx)
+	if authUser == nil {
+		return nil, mapDomainError(domain.ErrUnauthorized)
+	}
+
+	artifacts, err := h.artifactService.ListByRelease(ctx, authUser.ID, input.ReleaseID)
+	if err != nil {
+		return nil, mapDomainError(err)
+	}
+
+	// Convert pointer slice to value slice for response
+	result := make([]domain.Artifact, len(artifacts))
+	for i, a := range artifacts {
+		result[i] = *a
+	}
+
+	return &ListArtifactsOutput{
+		Body: ok("Artifacts retrieved successfully", result),
 	}, nil
 }

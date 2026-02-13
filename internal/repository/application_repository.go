@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 
+	"github.com/bsrodrigue/appshare-backend/internal/db"
 	"github.com/bsrodrigue/appshare-backend/internal/domain"
 	"github.com/google/uuid"
 )
@@ -29,4 +30,9 @@ type ApplicationRepository interface {
 
 	// PackageNameExists checks if a package name is already in use.
 	PackageNameExists(ctx context.Context, packageName string) (bool, error)
+
+	// ========== Transaction Methods ==========
+
+	// CreateTx creates a new application within a transaction.
+	CreateTx(ctx context.Context, q *db.Queries, input domain.CreateApplicationInput) (*domain.Application, error)
 }

@@ -9,6 +9,7 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/bsrodrigue/appshare-backend/internal/domain"
@@ -85,6 +86,7 @@ func mapDomainError(err error) error {
 	}
 
 	// Default to internal server error
+	slog.Error("unexpected internal error", "error", err)
 	return huma.Error500InternalServerError("an unexpected error occurred", &ErrorDetail{
 		Code:    domain.CodeInternal,
 		Message: "an unexpected error occurred",

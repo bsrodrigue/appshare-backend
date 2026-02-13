@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -95,4 +97,19 @@ func (s *R2Storage) Download(ctx context.Context, path string) (io.ReadCloser, e
 	}
 
 	return output.Body, nil
+}
+
+func (s *R2Storage) ExtractStoragePath(rawURL string) (string, bool) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false
+	}
+
+	// If it matches our public domain, strip the domain and return the path
+	// Example: https://pub-xxxx.r2.dev/uploads/user_id/file.apk
+	// Or custom domain: https://cdn.appshare.com/uploads/user_id/file.apk
+
+	path := strings.TrimPrefix(parsed.Path, "/")
+	// In a real app, you'd verify the host matches s.config.PublicDomain
+	return path, true
 }

@@ -133,10 +133,11 @@ func main() {
 
 	// ========== Services ==========
 
+	apkService := service.NewAPKService(storageSvc)
 	userService := service.NewUserService(userRepo)
 	authService := service.NewAuthService(userRepo, jwtService)
 	projectService := service.NewProjectService(projectRepo, userRepo, txManager)
-	appService := service.NewApplicationService(appRepo, projectRepo)
+	appService := service.NewApplicationService(appRepo, projectRepo, releaseRepo, artifactRepo, apkService, txManager)
 	releaseService := service.NewReleaseService(releaseRepo, appRepo, projectRepo, artifactRepo, storageSvc, txManager)
 	artifactService := service.NewArtifactService(artifactRepo, releaseRepo, appRepo, projectRepo, storageSvc)
 	fileService := service.NewFileService(storageSvc)
@@ -203,9 +204,9 @@ func main() {
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      rootHandler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	// Graceful shutdown

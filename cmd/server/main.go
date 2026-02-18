@@ -138,7 +138,7 @@ func main() {
 	authService := service.NewAuthService(userRepo, jwtService)
 	projectService := service.NewProjectService(projectRepo, userRepo, txManager)
 	appService := service.NewApplicationService(appRepo, projectRepo, releaseRepo, artifactRepo, apkService, txManager)
-	releaseService := service.NewReleaseService(releaseRepo, appRepo, projectRepo, artifactRepo, storageSvc, txManager)
+	releaseService := service.NewReleaseService(apkService, releaseRepo, appRepo, projectRepo, artifactRepo, storageSvc, txManager)
 	artifactService := service.NewArtifactService(artifactRepo, releaseRepo, appRepo, projectRepo, storageSvc)
 	fileService := service.NewFileService(storageSvc)
 

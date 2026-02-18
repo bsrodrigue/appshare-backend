@@ -109,11 +109,11 @@ func (s *ApplicationService) CreateFromArtifact(ctx context.Context, userId uuid
 		// 2. Create Initial Release
 		release, err := s.releaseRepo.CreateTx(ctx, q, domain.CreateReleaseInput{
 			ApplicationID: app.ID,
-			Title:         fmt.Sprintf("Initial Release %s (%d)", metadata.VersionName, metadata.VersionCode),
+			Title:         fmt.Sprintf("Release: %s (%d)", metadata.VersionName, metadata.VersionCode),
 			VersionCode:   int32(metadata.VersionCode),
 			VersionName:   metadata.VersionName,
-			ReleaseNote:   "Initial release from creation",
-			Environment:   domain.EnvironmentProduction, // Default to production for first upload? Or based on input?
+			ReleaseNote:   "Release initiale...",
+			Environment:   input.Environment,
 		})
 		if err != nil {
 			return err
@@ -159,7 +159,18 @@ func (s *ApplicationService) Update(ctx context.Context, userID uuid.UUID, appID
 		return nil, domain.ErrNotProjectOwner
 	}
 
-	return s.appRepo.Update(ctx, appID, input.Title, input.Description)
+	// Update fields if provided
+	title := app.Title
+	if input.Title != nil {
+		title = *input.Title
+	}
+
+	description := app.Description
+	if input.Description != nil {
+		description = *input.Description
+	}
+
+	return s.appRepo.Update(ctx, appID, title, description)
 }
 
 // Delete deletes an application.

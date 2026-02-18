@@ -11,6 +11,26 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const checkReleaseExists = `-- name: CheckReleaseExists :one
+SELECT EXISTS (
+    SELECT 1 FROM application_releases
+    WHERE application_id = $1 AND version_code = $2 AND environment = $3 AND deleted_at IS NULL
+)
+`
+
+type CheckReleaseExistsParams struct {
+	ApplicationID pgtype.UUID        `json:"application_id"`
+	VersionCode   int32              `json:"version_code"`
+	Environment   ReleaseEnvironment `json:"environment"`
+}
+
+func (q *Queries) CheckReleaseExists(ctx context.Context, arg CheckReleaseExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, checkReleaseExists, arg.ApplicationID, arg.VersionCode, arg.Environment)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const createApplicationRelease = `-- name: CreateApplicationRelease :one
 INSERT INTO application_releases (
     title,

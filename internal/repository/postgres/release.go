@@ -117,15 +117,17 @@ func (r *ReleaseRepository) SoftDelete(ctx context.Context, id uuid.UUID) error 
 	return translateError(err)
 }
 
-// VersionExists check - we don't have a specific SQL query for this yet,
-// but we can use GetLatestReleaseByEnvironment and check if version matches,
-// or better, handle the unique constraint error.
-// For now, let's keep it simple and just implement it with a specific check if needed,
-// but unique constraint is the source of truth.
+// VersionExists checks if a release with the given version code and environment already exists for an application.
 func (r *ReleaseRepository) VersionExists(ctx context.Context, appID uuid.UUID, versionCode int32, env domain.ReleaseEnvironment) (bool, error) {
-	// This is optional since DB constraint will catch it, but good for validation.
-	// For now we'll return false and let the DB fail if duplicate.
-	return false, nil
+	exists, err := r.q.CheckReleaseExists(ctx, db.CheckReleaseExistsParams{
+		ApplicationID: uuidToPgtype(appID),
+		VersionCode:   versionCode,
+		Environment:   db.ReleaseEnvironment(env),
+	})
+	if err != nil {
+		return false, translateError(err)
+	}
+	return exists, nil
 }
 
 // ========== Transaction Methods ==========

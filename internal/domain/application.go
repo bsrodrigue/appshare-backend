@@ -42,10 +42,11 @@ type CreateApplicationFromArtifactInput struct {
 	Title       string
 	ProjectID   uuid.UUID
 	ArtifactURL string
+	Environment ReleaseEnvironment
 }
 
 // UpdateApplicationInput represents data needed to update an existing application.
 type UpdateApplicationInput struct {
-	Title       string
-	Description string
+	Title       *string
+	Description *string
 }

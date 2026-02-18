@@ -116,10 +116,10 @@ type CreateApplicationOutput struct {
 
 // UpdateApplicationInput is the request for updating an application.
 type UpdateApplicationInput struct {
-	ID   uuid.UUID `path:"id" doc:"Application ID"`
+	ID   string `path:"id" doc:"Application ID"`
 	Body struct {
-		Title       string `json:"title" minLength:"3" maxLength:"100" doc:"Application title"`
-		Description string `json:"description" maxLength:"1000" doc:"Application description"`
+		Title       *string `json:"title,omitempty" minLength:"3" maxLength:"100" doc:"Application title"`
+		Description *string `json:"description,omitempty" maxLength:"1000" doc:"Application description"`
 	}
 }
 
@@ -161,9 +161,10 @@ type ListApplicationsOutput struct {
 // CreateApplicationFromBinaryInput is the request for creating an application from a binary.
 type CreateApplicationFromBinaryInput struct {
 	Body struct {
-		ProjectID   uuid.UUID `json:"project_id" required:"true" doc:"Project ID"`
-		Title       string    `json:"title" required:"true" minLength:"3" maxLength:"100" doc:"Application title"`
-		ArtifactURL string    `json:"artifact_url" required:"true" doc:"URL of the artifact in storage"`
+		ProjectID   uuid.UUID                 `json:"project_id" required:"true" doc:"Project ID"`
+		Title       string                    `json:"title" required:"true" minLength:"3" maxLength:"100" doc:"Application title"`
+		ArtifactURL string                    `json:"artifact_url" required:"true" doc:"URL of the artifact in storage"`
+		Environment domain.ReleaseEnvironment `json:"environment" required:"true" doc:"Environment (e.g. production, development, testing)"`
 	}
 }
 
@@ -201,7 +202,12 @@ func (h *ApplicationHandler) updateApplication(ctx context.Context, input *Updat
 		return nil, mapDomainError(domain.ErrUnauthorized)
 	}
 
-	app, err := h.appService.Update(ctx, authUser.ID, input.ID, domain.UpdateApplicationInput{
+	appID, err := uuid.Parse(input.ID)
+	if err != nil {
+		return nil, huma.Error400BadRequest("invalid application ID format")
+	}
+
+	app, err := h.appService.Update(ctx, authUser.ID, appID, domain.UpdateApplicationInput{
 		Title:       input.Body.Title,
 		Description: input.Body.Description,
 	})
@@ -267,6 +273,7 @@ func (h *ApplicationHandler) createApplicationFromBinary(ctx context.Context, in
 		ProjectID:   input.Body.ProjectID,
 		Title:       input.Body.Title,
 		ArtifactURL: input.Body.ArtifactURL,
+		Environment: input.Body.Environment,
 	})
 	if err != nil {
 		return nil, mapDomainError(err)

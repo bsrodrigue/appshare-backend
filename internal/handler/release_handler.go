@@ -130,10 +130,10 @@ type CreateReleaseOutput struct {
 
 // UpdateReleaseInput is the request for updating a release.
 type UpdateReleaseInput struct {
-	ID   uuid.UUID `path:"id" doc:"Release ID"`
+	ID   string `path:"id" doc:"Release ID"`
 	Body struct {
-		Title       string `json:"title" minLength:"3" maxLength:"100" doc:"Release title"`
-		ReleaseNote string `json:"release_note" maxLength:"2000" doc:"Release notes"`
+		Title       *string `json:"title,omitempty" minLength:"3" maxLength:"100" doc:"Release title"`
+		ReleaseNote *string `json:"release_note,omitempty" maxLength:"2000" doc:"Release notes"`
 	}
 }
 
@@ -231,7 +231,12 @@ func (h *ReleaseHandler) updateRelease(ctx context.Context, input *UpdateRelease
 		return nil, mapDomainError(domain.ErrUnauthorized)
 	}
 
-	release, err := h.releaseService.Update(ctx, authUser.ID, input.ID, domain.UpdateReleaseInput{
+	releaseID, err := uuid.Parse(input.ID)
+	if err != nil {
+		return nil, huma.Error400BadRequest("invalid release ID format")
+	}
+
+	release, err := h.releaseService.Update(ctx, authUser.ID, releaseID, domain.UpdateReleaseInput{
 		Title:       input.Body.Title,
 		ReleaseNote: input.Body.ReleaseNote,
 	})

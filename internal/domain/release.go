@@ -40,6 +40,6 @@ type CreateReleaseInput struct {
 
 // UpdateReleaseInput represents data needed to update an existing release.
 type UpdateReleaseInput struct {
-	Title       string
-	ReleaseNote string
+	Title       *string
+	ReleaseNote *string
 }

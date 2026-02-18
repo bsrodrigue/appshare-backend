@@ -14,6 +14,12 @@ INSERT INTO application_releases (
 SELECT * FROM application_releases 
 WHERE id = $1 AND deleted_at IS NULL;
 
+-- name: CheckReleaseExists :one
+SELECT EXISTS (
+    SELECT 1 FROM application_releases
+    WHERE application_id = $1 AND version_code = $2 AND environment = $3 AND deleted_at IS NULL
+);
+
 -- name: ListReleasesByApplication :many
 SELECT * FROM application_releases 
 WHERE application_id = $1 AND deleted_at IS NULL

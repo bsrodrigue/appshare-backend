@@ -2,46 +2,65 @@ package service
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
-	"os"
 
 	"github.com/bsrodrigue/appshare-backend/internal/db"
 	"github.com/bsrodrigue/appshare-backend/internal/domain"
 	"github.com/bsrodrigue/appshare-backend/internal/repository"
 	"github.com/bsrodrigue/appshare-backend/internal/storage"
 	"github.com/google/uuid"
-	"github.com/shogo82148/androidbinary/apk"
 )
 
 // ReleaseService handles release business logic.
 type ReleaseService struct {
+	// Services
+	apkService *APKService
+
+	// Repositories
 	releaseRepo  repository.ReleaseRepository
 	appRepo      repository.ApplicationRepository
 	projectRepo  repository.ProjectRepository
 	artifactRepo repository.ArtifactRepository
-	storage      storage.Storage
-	txManager    *db.TxManager
+
+	// Storage
+	storage storage.Storage
+
+	// Transaction Manager
+	txManager *db.TxManager
 }
 
 // NewReleaseService creates a new ReleaseService.
 func NewReleaseService(
+	// Services
+	apkService *APKService,
+
+	// Repositories
 	releaseRepo repository.ReleaseRepository,
 	appRepo repository.ApplicationRepository,
 	projectRepo repository.ProjectRepository,
 	artifactRepo repository.ArtifactRepository,
+
+	// Storage
 	storage storage.Storage,
+
+	// Transaction Manager
 	txManager *db.TxManager,
 ) *ReleaseService {
 	return &ReleaseService{
+		// Services
+		apkService: apkService,
+
+		// Repositories
 		releaseRepo:  releaseRepo,
 		appRepo:      appRepo,
 		projectRepo:  projectRepo,
 		artifactRepo: artifactRepo,
-		storage:      storage,
-		txManager:    txManager,
+
+		// Storage
+		storage: storage,
+
+		// Transaction Manager
+		txManager: txManager,
 	}
 }
 
@@ -88,7 +107,18 @@ func (s *ReleaseService) Update(ctx context.Context, userID uuid.UUID, releaseID
 		return nil, domain.ErrNotProjectOwner
 	}
 
-	return s.releaseRepo.Update(ctx, releaseID, input.Title, input.ReleaseNote)
+	// Update fields if provided
+	title := release.Title
+	if input.Title != nil {
+		title = *input.Title
+	}
+
+	releaseNote := release.ReleaseNote
+	if input.ReleaseNote != nil {
+		releaseNote = *input.ReleaseNote
+	}
+
+	return s.releaseRepo.Update(ctx, releaseID, title, releaseNote)
 }
 
 // Promote promotes a release to another environment.
@@ -174,60 +204,43 @@ func (s *ReleaseService) CreateReleaseWithArtifactURL(ctx context.Context, userI
 
 	// 2. Download the file to a temporary location
 	// We need it as a local file for APK parsing
-	storagePath, isOurs := s.storage.ExtractStoragePath(artifactURL)
-	var reader io.ReadCloser
-	if isOurs {
-		reader, err = s.storage.Download(ctx, storagePath)
-	} else {
-		// External URL - but let's stick to our storage for now as per "Download from cloudflare"
-		return nil, domain.NewValidationError("artifact_url", "only internal artifacts are supported for now")
-	}
+
+	metadata, err := s.apkService.ExtractMetadataFromURL(ctx, artifactURL)
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to download artifact: %w", err)
+		return nil, err
 	}
-	defer reader.Close()
 
-	// Warning, can be dangerous with tmpfs (memory exhaustion)
-	tmpFile, err := os.CreateTemp("", "artifact-*.apk")
+	// Verify package name matches
+	if app.PackageName != metadata.PackageName {
+		return nil, domain.NewValidationError(
+			"artifact_url",
+			fmt.Sprintf(
+				"package name mismatch: expected %s, got %s",
+				app.PackageName,
+				metadata.PackageName,
+			),
+		)
+	}
+
+	// Check if version already exists for this environment
+	exists, err := s.releaseRepo.VersionExists(ctx, appID, int32(metadata.VersionCode), environment)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temp file: %w", err)
+		return nil, err
 	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
-
-	hasher := sha256.New()
-	multiWriter := io.MultiWriter(tmpFile, hasher)
-	fileSize, err := io.Copy(multiWriter, reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to save artifact: %w", err)
-	}
-	sha256Hex := hex.EncodeToString(hasher.Sum(nil))
-
-	// 3. Parse APK
-	pkg, err := apk.OpenFile(tmpFile.Name())
-	if err != nil {
-		return nil, domain.NewValidationError("artifact_url", "invalid APK file: "+err.Error())
-	}
-	defer pkg.Close()
-
-	versionCode := pkg.Manifest().VersionCode.MustInt32()
-	versionName := pkg.Manifest().VersionName.MustString()
-	packageName := pkg.PackageName()
-
-	// Verify package name matches (optional but good)
-	if app.PackageName != packageName {
-		return nil, domain.NewValidationError("artifact_url", fmt.Sprintf("package name mismatch: expected %s, got %s", app.PackageName, packageName))
+	if exists {
+		return nil, domain.ErrReleaseExists
 	}
 
-	// 4. Transactional DB update
+	// Transactional DB update
 	var release *domain.ApplicationRelease
 	err = s.txManager.WithTx(ctx, func(q *db.Queries) error {
 		// Create Release
 		release, err = s.releaseRepo.CreateTx(ctx, q, domain.CreateReleaseInput{
 			ApplicationID: appID,
-			Title:         fmt.Sprintf("Release %s (%d)", versionName, versionCode),
-			VersionCode:   int32(versionCode),
-			VersionName:   versionName,
+			Title:         fmt.Sprintf("Release %s (%d)", metadata.VersionName, metadata.VersionCode),
+			VersionCode:   int32(metadata.VersionCode),
+			VersionName:   metadata.VersionName,
 			ReleaseNote:   releaseNote,
 			Environment:   environment,
 		})
@@ -239,8 +252,8 @@ func (s *ReleaseService) CreateReleaseWithArtifactURL(ctx context.Context, userI
 		_, err = s.artifactRepo.CreateTx(ctx, q, domain.CreateArtifactInput{
 			ReleaseID: release.ID,
 			FileURL:   artifactURL,
-			SHA256:    sha256Hex,
-			FileSize:  fileSize,
+			SHA256:    metadata.SHA256,
+			FileSize:  metadata.FileSize,
 			FileType:  "application/vnd.android.package-archive",
 			// ABI: could extract from APK entries (lib/arm64-v8a etc.) but let's keep it simple
 		})
